@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Vila Shinobi — Protótipo 0.3</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101820;font-family:system-ui,-apple-system,Arial;color:#fff;touch-action:none}
+#game{display:block;width:100vw;height:100dvh;background:#75a85c}
+#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;gap:8px;pointer-events:none}
+.panel{background:#172333e8;border:1px solid #ffffff30;border-radius:12px;padding:8px 11px;box-shadow:0 3px 12px #0005;font-size:12px}
+#stats{min-width:150px}#bar{height:7px;background:#49333b;border-radius:8px;margin-top:5px;overflow:hidden}#hp{height:100%;width:100%;background:#e85b62}
+#quest{max-width:48%;text-align:right}
+#controls{position:fixed;z-index:10;inset:auto 0 15px 0;display:flex;justify-content:space-between;align-items:end;padding:0 18px;pointer-events:none}
+#stick{touch-action:none;user-select:none;-webkit-user-select:none;width:128px;height:128px;border-radius:50%;background:#15243888;border:2px solid #ffffff55;position:relative;pointer-events:auto}
+#knob{pointer-events:none;touch-action:none;width:52px;height:52px;border-radius:50%;background:#dce8f0bb;border:2px solid #fff;position:absolute;left:36px;top:36px}
+#actions{display:flex;gap:10px;align-items:end;pointer-events:auto}
+.action{width:64px;height:64px;border-radius:50%;border:2px solid #ffffff88;background:#253b56dd;color:#fff;font-weight:800;font-size:12px;box-shadow:0 4px 12px #0005}
+#talk{width:64px;height:64px;background:#8c5a27e8}#jutsu{background:#6843a6e8}
+#hint{position:fixed;left:50%;bottom:154px;transform:translateX(-50%);background:#172333e8;border:1px solid #fff5;border-radius:10px;padding:8px 12px;font-size:12px;white-space:nowrap;display:none}
+#modal{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;padding:22px}
+#card{max-width:360px;background:#19283a;border:1px solid #ffffff44;border-radius:16px;padding:20px;box-shadow:0 10px 35px #0008}
+#card h2{margin:0 0 8px;color:#ffd27a}#card p{line-height:1.45;color:#e5edf5}
+#close{background:#d69a45;color:#1b1b1b;border:0;border-radius:9px;padding:10px 18px;font-weight:800}
+#toast{position:fixed;top:78px;left:50%;transform:translateX(-50%);background:#18283beF;border-radius:10px;padding:9px 14px;display:none;font-size:13px}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+ <div class="panel" id="stats"><b>SHINOBI · Nível <span id="level">1</span></b><div>HP <span id="hpText">100/100</span> · XP <span id="xp">0</span>/<span id="xpGoal">50</span></div><div id="bar"><div id="hp"></div></div></div>
+ <div class="panel" id="quest"><b>MISSÃO PRINCIPAL</b><br><span id="questText">Fale com o Mestre Kenji</span></div>
+</div>
+<div id="hint">Aproxime-se do Mestre Kenji e toque em FALAR</div>
+<div id="toast"></div>
+<div id="controls">
+ <div id="stick"><div id="knob"></div></div>
+ <div id="actions"><button class="action" id="attack">ATAQUE</button><button class="action" id="jutsu">JUTSU</button><button class="action" id="talk">FALAR</button></div>
+</div>
+<div id="modal"><div id="card"><h2 id="modalTitle">Missão</h2><p id="modalText"></p><button id="close">Continuar</button></div></div>
+<script>
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+let W=0,H=0,dpr=1;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+const world={w:1800,h:1300};
+const player={x:900,y:760,r:17,speed:190,dir:0,hp:100,maxHp:100,level:1,attackPower:25};
+const npc={x:1010,y:690};
+let joy={x:0,y:0},keys={},quest=0,xp=0,near=false,kills=0,lastAttack=0,lastJutsu=0,invulnerable=0;
+const enemies=[
+ {x:570,y:480,hp:50,maxHp:50,alive:true,hit:0},
+ {x:650,y:520,hp:50,maxHp:50,alive:true,hit:0},
+ {x:720,y:450,hp:50,maxHp:50,alive:true,hit:0},
+ {x:540,y:850,hp:50,maxHp:50,alive:true,hit:0},
+ {x:690,y:900,hp:50,maxHp:50,alive:true,hit:0}
+];
+const buildings=[
+{x:360,y:270,w:250,h:170,c:'#9a6540',roof:'#633b35',name:'ACADEMIA'},
+{x:1160,y:260,w:300,h:190,c:'#b27a49',roof:'#70403a',name:'LOJA'},
+{x:300,y:900,w:270,h:170,c:'#a56e45',roof:'#693d39',name:'CASA'},
+{x:1250,y:930,w:260,h:170,c:'#a56e45',roof:'#693d39',name:'HOSPITAL'}
+];
+const trees=[];for(let i=0;i<90;i++){let x=(i*239+113)%world.w,y=(i*173+71)%world.h;if(x<180||x>world.w-180||y<150||y>world.h-150)continue;trees.push({x,y,r:18+(i%3)*5})}
+function rounded(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ const camX=Math.max(0,Math.min(world.w-W,player.x-W/2)),camY=Math.max(0,Math.min(world.h-H,player.y-H/2));
+ ctx.save();ctx.translate(-camX,-camY);
+ ctx.fillStyle='#78a95f';ctx.fillRect(0,0,world.w,world.h);
+ // caminhos
+ ctx.fillStyle='#c6ad7b';ctx.fillRect(0,610,world.w,150);ctx.fillRect(820,0,160,world.h);
+ ctx.fillStyle='#d6c08f';ctx.fillRect(0,670,world.w,5);ctx.fillRect(895,0,5,world.h);
+ // gramado decorativo
+ for(let i=0;i<180;i++){let x=(i*97)%world.w,y=(i*131)%world.h;ctx.fillStyle=i%2?'#6f9f56':'#83b66a';ctx.fillRect(x,y,3,7)}
+ // casas
+ for(const b of buildings){ctx.fillStyle='#0003';rounded(b.x+8,b.y+12,b.w,b.h,10);ctx.fillStyle=b.c;rounded(b.x,b.y+25,b.w,b.h-25,8);ctx.fillStyle=b.roof;ctx.beginPath();ctx.moveTo(b.x-12,b.y+35);ctx.lineTo(b.x+b.w/2,b.y-35);ctx.lineTo(b.x+b.w+12,b.y+35);ctx.closePath();ctx.fill();ctx.fillStyle='#f2d7a0';ctx.font='bold 15px system-ui';ctx.textAlign='center';ctx.fillText(b.name,b.x+b.w/2,b.y+75);ctx.fillStyle='#4c3428';ctx.fillRect(b.x+b.w/2-18,b.y+b.h-45,36,45)}
+ // árvores
+ for(const t of trees){ctx.fillStyle='#5b442e';ctx.fillRect(t.x-4,t.y+5,8,20);ctx.fillStyle='#397b45';ctx.beginPath();ctx.arc(t.x,t.y,t.r,0,Math.PI*2);ctx.fill();ctx.fillStyle='#559b52';ctx.beginPath();ctx.arc(t.x-6,t.y-7,t.r*.55,0,Math.PI*2);ctx.fill()}
+ // Inimigos
+ for(const e of enemies){if(!e.alive)continue;drawPerson(e.x,e.y,'#302a35','#9b4545','Bandido');ctx.fillStyle='#3b2020';ctx.fillRect(e.x-19,e.y-34,38,5);ctx.fillStyle='#e85b62';ctx.fillRect(e.x-19,e.y-34,38*Math.max(0,e.hp/e.maxHp),5)}
+ // NPC
+ drawPerson(npc.x,npc.y,'#e6c45e','#354e79','Mestre Kenji');
+ // player
+ drawPerson(player.x,player.y,'#e7e7e7','#2875b9','Você');
+ // minimapa
+ ctx.fillStyle='#1b2c3bcc';rounded(1450,30,300,190,12);ctx.fillStyle='#83b66a';ctx.fillRect(1462,42,276,166);ctx.fillStyle='#c5ac7d';ctx.fillRect(1462,119,276,20);ctx.fillRect(1592,42,20,166);ctx.fillStyle='#f1cb62';ctx.beginPath();ctx.arc(1462+player.x/world.w*276,42+player.y/world.h*166,5,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.font='12px system-ui';ctx.textAlign='left';ctx.fillText('MAPA',1470,58);
+ ctx.restore();
+ near=Math.hypot(player.x-npc.x,player.y-npc.y)<85;
+ document.getElementById('hint').textContent=near?'Aproxime-se do Mestre Kenji e toque em FALAR':'';
+ document.getElementById('hint').style.display=near?'block':'none';
+}
+function drawPerson(x,y,hair,clothes,label){
+ ctx.fillStyle='#0004';ctx.beginPath();ctx.ellipse(x,y+18,17,7,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle=clothes;rounded(x-12,y-8,24,29,7);
+ ctx.fillStyle='#f0c49b';ctx.beginPath();ctx.arc(x,y-17,12,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle=hair;ctx.beginPath();ctx.arc(x,y-21,13,Math.PI,Math.PI*2);ctx.fill();ctx.fillRect(x-12,y-22,24,6);
+ ctx.fillStyle='#fff';ctx.font='bold 11px system-ui';ctx.textAlign='center';ctx.fillText(label,x,y-38);
+}
+function move(dt){
+ let x=joy.x+(keys.ArrowRight?1:0)-(keys.ArrowLeft?1:0),y=joy.y+(keys.ArrowDown?1:0)-(keys.ArrowUp?1:0);
+ let len=Math.hypot(x,y);if(len>1){x/=len;y/=len}
+ player.x=Math.max(35,Math.min(world.w-35,player.x+x*player.speed*dt));
+ player.y=Math.max(35,Math.min(world.h-35,player.y+y*player.speed*dt));if(len)player.dir=Math.atan2(y,x);
+ for(const e of enemies){if(!e.alive)continue;const dx=player.x-e.x,dy=player.y-e.y,d=Math.hypot(dx,dy);if(d<230&&d>31){e.x+=dx/d*62*dt;e.y+=dy/d*62*dt}if(d<34&&invulnerable<=0){player.hp=Math.max(0,player.hp-8);invulnerable=.65;updateHud();if(player.hp<=0){player.hp=100;player.x=900;player.y=760;toast('Você foi levado à Academia e recuperou o HP.');updateHud()}}}
+ if(invulnerable>0)invulnerable-=dt;
+}
+function updateHud(){document.getElementById('hpText').textContent=player.hp+'/'+player.maxHp;document.getElementById('hp').style.width=(player.hp/player.maxHp*100)+'%';document.getElementById('level').textContent=player.level;document.getElementById('xp').textContent=xp;document.getElementById('xpGoal').textContent=player.level*50}
+function gainXp(n){xp+=n;while(xp>=player.level*50){xp-=player.level*50;player.level++;player.maxHp+=15;player.hp=player.maxHp;player.attackPower+=5;toast('Nível '+player.level+'! Seus atributos aumentaram.')}updateHud()}
+let last=performance.now();function loop(now){let dt=Math.min((now-last)/1000,.04);last=now;move(dt);draw();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+const stick=document.getElementById('stick'),knob=document.getElementById('knob');let active=false;
+function setJoy(e){const r=stick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy,l=Math.hypot(dx,dy),m=38;if(l>m){dx=dx/l*m;dy=dy/l*m}joy={x:dx/m,y:dy/m};knob.style.transform=`translate(${dx}px,${dy}px)`}
+stick.addEventListener('pointerdown',e=>{active=true;try{stick.setPointerCapture(e.pointerId)}catch(_){}setJoy(e);e.preventDefault()});
+stick.addEventListener('pointermove',e=>{if(active){setJoy(e);e.preventDefault()}});
+function release(){active=false;joy={x:0,y:0};knob.style.transform=''}
+stick.addEventListener('pointerup',release);stick.addEventListener('pointercancel',release);stick.addEventListener('lostpointercapture',release);
+// Fallback específico para navegadores móveis que não encaminham Pointer Events corretamente.
+function touchJoy(e){if(!e.touches.length)return;const t=e.touches[0];setJoy({clientX:t.clientX,clientY:t.clientY});e.preventDefault()}
+stick.addEventListener('touchstart',e=>{active=true;touchJoy(e)},{passive:false});
+stick.addEventListener('touchmove',e=>{if(active)touchJoy(e)},{passive:false});
+stick.addEventListener('touchend',e=>{if(e.touches.length===0)release();e.preventDefault()},{passive:false});
+stick.addEventListener('touchcancel',release,{passive:false});
+addEventListener('keydown',e=>keys[e.key]=true);addEventListener('keyup',e=>keys[e.key]=false);
+function popup(title,msg){document.getElementById('modalTitle').textContent=title;document.getElementById('modalText').textContent=msg;document.getElementById('modal').style.display='flex'}
+document.getElementById('talk').onclick=()=>{
+ if(!near){toast('Chegue mais perto do Mestre Kenji.');return}
+ if(quest===0){popup('Primeira missão','Bem-vindo à Vila Shinobi! Use ATAQUE três vezes para treinar seus golpes.');quest=1;document.getElementById('questText').textContent='Treine: use ATAQUE 3 vezes'}
+ else if(quest===2){popup('Treinamento concluído','Muito bem! Agora sua missão é derrotar 3 bandidos na floresta, a oeste da vila.');quest=3;document.getElementById('questText').textContent='Derrote bandidos: '+kills+'/3'}
+ else if(quest===4){popup('Missão concluída','Você protegeu a vila! Recebeu 100 XP e uma poção de cura.');gainXp(100);quest=5;document.getElementById('questText').textContent='Missão concluída · Explore a vila'}
+ else popup('Mestre Kenji','Continue seu treinamento, jovem ninja!');
+};
+let hits=0;
+function damageEnemy(amount,range,label){
+ const candidates=enemies.filter(e=>e.alive&&Math.hypot(player.x-e.x,player.y-e.y)<=range).sort((a,b)=>Math.hypot(player.x-a.x,player.y-a.y)-Math.hypot(player.x-b.x,player.y-b.y));
+ if(!candidates.length){toast('Nenhum inimigo ao alcance.');return}
+ const e=candidates[0];e.hp-=amount;toast(label+'! -'+amount+' HP');
+ if(e.hp<=0){e.alive=false;gainXp(20);toast('Bandido derrotado! +20 XP');if(quest===3){kills++;document.getElementById('questText').textContent='Derrote bandidos: '+kills+'/3';if(kills>=3){quest=4;document.getElementById('questText').textContent='Volte ao Mestre Kenji'}}}
+}
+document.getElementById('attack').onclick=()=>{const now=performance.now();if(now-lastAttack<550)return;lastAttack=now;if(quest===1){hits++;toast('Treinamento '+hits+'/3');if(hits>=3){quest=2;document.getElementById('questText').textContent='Volte ao Mestre Kenji';toast('Treinamento concluído!')};return}damageEnemy(player.attackPower,78,'Ataque')};
+document.getElementById('jutsu').onclick=()=>{const now=performance.now();if(now-lastJutsu<2200){toast('Jutsu recarregando...');return}lastJutsu=now;if(quest===1){toast('Conclua o treino básico primeiro.');return}damageEnemy(player.attackPower*2,145,'JUTSU');};
+document.getElementById('close').onclick=()=>document.getElementById('modal').style.display='none';
+let toastTimer;function toast(t){const el=document.getElementById('toast');el.textContent=t;el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',1700)}
+</script>
+</body>
+</html>
